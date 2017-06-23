@@ -1,0 +1,106 @@
+defmodule NA.AdjTest do
+  use ExUnit.Case
+  doctest NA.Adj
+
+  alias NA.Adj.Pricer
+
+  test "the truth" do
+    create_results_file("test_file_results.csv")
+
+    read_csv("test_file.csv")
+    |> remove_headers
+    |> Enum.each(&test_price/1)
+    assert 1 + 1 == 2
+    
+  end
+
+  defp read_csv(csv_path) do
+    File.stream!(csv_path)
+    |> Stream.map(&split_row/1)
+    |> Enum.into([])
+  end
+  
+  defp create_results_file([headers|claims]) do
+    {:ok,file} = File.open(name,[:write])
+     header = "authorization,product_id,service_provider,rx_date,days_supply,pharmacy_panel,submitted_ingredient_cost,uc,quantity, awp_effective_price,disp_fee_used,ingredient_cost_paid,cost_basis,final_price,"
+    header = header <> headers
+    IO.binwrite(file, header)
+    File.close(file)
+    claims
+  end
+
+  defp add_new_line(file) do
+    IO.binwrite(file,"\r\n")
+    File.close(file)
+  end
+
+  defp add_header do
+       file
+  end
+
+  defp add_row(row) do
+    {:ok,file} = File.open("test_file_results.csv",[:append])
+    IO.binwrite(file, row)
+    add_new_line(file)
+  end
+
+  defp split_row(row) do
+    row = String.replace(row,"\n","")
+    String.split(row,",")
+  end
+  defp remove_headers([headers|claims]) do
+    claims
+  end
+  defp test_price(row) do
+    row = String.replace(row, "\n","")
+          |> String.split(row,",")
+    row = [Enum.at(claim,235)]
+    
+    product_id = String.pad_leading(Enum.at(claim, 144), 11,"0") 
+    row = row ++ [product_id]
+
+    service_provider = String.pad_leading(Enum.at(claim,43),7,"0")
+    row = row ++ [service_provider]
+
+    rx_date = NA.Shared.DateParser.parse(Enum.at(claim,138),"dd-mmm-yyyy")
+    row = row ++ [Enum.at(claim,138)]
+
+    days_supply = String.to_integer(Enum.at(claim,142))
+    row = row ++ [Enum.at(claim,142)]
+    
+    pharmacy_panel_name = "S-CVS"
+    {pharmacy_panel,_,_} = NA.DB.Repo.PharmacyPanel.get_by_name(pharmacy_panel_name)
+    row = row ++ [pharmacy_panel_name]
+
+    ic = String.to_float(Enum.at(claim,238))
+    row = row ++ [Enum.at(claim,238)]
+
+    uc = String.to_float(Enum.at(claim,160))
+    row = row ++ [Enum.at(claim,160)]
+
+    quantity = Enum.at(claim,141)
+    row = row ++ [quantity]
+
+    {{price, cb, _, disp_fee}, _, effective_price} =  Pricer.get_price(product_id, service_provider, pharmacy_panel.id, rx_date, days_supply, quantity, ic, uc)
+ 
+    row = row ++ [Decimal.to_string(effective_price)]
+    row = row ++ [Decimal.to_string(disp_fee)]
+    ingredient_cost_paid = Decimal.to_string(Decimal.add(disp_fee,(Decimal.new(ic))))
+    row = row ++ [ingredient_cost_paid]
+    row = row ++ [cb]
+
+    row = row ++ [Decimal.to_string(price)]
+    
+    IO.puts "Result"
+    IO.inspect final_price
+    IO.inspect disp_fee
+    IO.inspect ingredient_cost_paid
+
+    IO.puts "Received"
+    IO.inspect Enum.at(claim,241)
+    IO.inspect Enum.at(claim,239)
+    IO.inspect Enum.at(claim,238)
+    
+    add_row(Enum.join(row,","))
+  end
+end
